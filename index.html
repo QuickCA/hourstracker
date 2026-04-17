@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目工时追踪系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Noto Sans SC', sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+        .glass-card {
+            background: rgba(30,41,59,0.8); backdrop-filter: blur(20px);
+            border: 1px solid rgba(148,163,184,0.1); border-radius: 16px;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .glass-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+        .avatar-container { width: 72px; height: 72px; border-radius: 50%; overflow: hidden; flex-shrink: 0; }
+        .avatar-svg { width: 100%; height: 100%; }
+        .stat-value {
+            font-size: 1.8rem; font-weight: 900;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .tab-btn {
+            padding: 10px 22px; border-radius: 10px; cursor: pointer; transition: all 0.3s;
+            border: none; font-size: 14px; font-weight: 500; color: var(--text-secondary); background: transparent;
+            font-family: inherit;
+        }
+        .tab-btn.active { background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; box-shadow: 0 4px 15px rgba(59,130,246,0.4); }
+        .tab-btn:hover:not(.active) { background: rgba(148,163,184,0.1); color: var(--text-primary); }
+        .upload-zone {
+            border: 2px dashed rgba(59,130,246,0.4); border-radius: 16px; padding: 40px;
+            text-align: center; cursor: pointer; transition: all 0.3s; background: rgba(59,130,246,0.05);
+        }
+        .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent-blue); background: rgba(59,130,246,0.1); }
+        .spc-chart-container { background: var(--bg-card); border-radius: 16px; padding: 16px; border: 1px solid rgba(148,163,184,0.1); }
+        .compliance-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .compliance-good { background: rgba(16,185,129,0.15); color: #10b981; }
+        .compliance-warning { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .compliance-bad { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .week-selector { background: var(--bg-secondary); border: 1px solid rgba(148,163,184,0.2); border-radius: 8px; color: var(--text-primary); padding: 8px 12px; font-size: 14px; font-family: inherit; }
+        .week-selector:focus { outline: none; border-color: #3b82f6; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.3); border-radius: 3px; }
+        .hero-gradient { background: linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(139,92,246,0.15) 50%, rgba(236,72,153,0.1) 100%); }
+        .data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        .data-table th {
+            background: rgba(59,130,246,0.1); padding: 10px 12px; text-align: center;
+            font-weight: 600; font-size: 13px; color: var(--text-secondary);
+            border-bottom: 1px solid rgba(148,163,184,0.1); position: sticky; top: 0; z-index: 1;
+        }
+        .data-table td { padding: 8px 12px; text-align: center; font-size: 13px; border-bottom: 1px solid rgba(148,163,184,0.05); }
+        .data-table tr:hover td { background: rgba(59,130,246,0.05); }
+        .mini-bar { height: 6px; border-radius: 3px; background: rgba(148,163,184,0.1); overflow: hidden; margin-top: 4px; }
+        .mini-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+        @keyframes fadeInUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+        .animate-in { animation: fadeInUp 0.5s ease-out forwards; }
+        .toast {
+            position: fixed; top: 20px; right: 20px; z-index: 1000;
+            padding: 14px 24px; border-radius: 12px; font-size: 14px; font-weight: 500;
+            transform: translateX(120%); transition: transform 0.4s;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+        }
+        .toast.show { transform: translateX(0); }
+        .toast-success { background: rgba(16,185,129,0.9); color: white; }
+        .toast-error { background: rgba(239,68,68,0.9); color: white; }
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px); z-index: 100;
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-content {
+            background: var(--bg-secondary); border-radius: 20px; padding: 30px;
+            max-width: 900px; width: 90%; max-height: 85vh; overflow-y: auto;
+            border: 1px solid rgba(148,163,184,0.1);
+        }
+        .mapping-row { display: grid; grid-template-columns: 120px 1fr 1fr; gap: 12px; align-items: center; margin-bottom: 10px; }
+        .mapping-row select, .mapping-row input {
+            background: rgba(15,23,42,0.8); border: 1px solid rgba(148,163,184,0.2);
+            border-radius: 8px; padding: 8px 12px; color: var(--text-primary); font-size: 13px; font-family: inherit;
+        }
+        .mapping-row select:focus, .mapping-row input:focus { outline: none; border-color: #3b82f6; }
+        .file-info { background: rgba(59,130,246,0.08); border-radius: 12px; padding: 16px; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <div id="toast" class="toast"></div>
+
+    <!-- Header -->
+    <header class="hero-gradient border-b border-slate-700/50">
+        <div class="max-w-7xl mx-auto px-6 py-5">
+            <div class="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                    <h1 class="text-2xl font-black tracking-tight">
+                        <span style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">⏱ 项目工时追踪系统</span>
+                    </h1>
+                    <p class="text-slate-400 mt-1 text-sm">实时追踪团队工时 · SPC质量监控 · 达标率分析</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="clearAllData()" class="flex items-center gap-2 bg-red-700/60 hover:bg-red-600 text-white px-4 py-2.5 rounded-xl font-medium transition-all text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        清空数据
+                    </button>
+                    <button onclick="showMappingModal()" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-xl font-medium transition-all text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        员工映射
+                    </button>
+                    <button onclick="showUploadModal()" class="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-5 py-2.5 rounded-xl font-medium transition-all shadow-lg shadow-blue-500/25 text-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                        上传工时数据
+                    </button>
+                    <button onclick="exportData()" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-xl font-medium transition-all text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        导出
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <div class="max-w-7xl mx-auto px-6 mt-5">
+        <div class="flex gap-2 bg-slate-800/50 p-1.5 rounded-xl w-fit">
+            <button class="tab-btn active" onclick="switchTab('overview', this)">📊 总览</button>
+            <button class="tab-btn" onclick="switchTab('spc', this)">📈 SPC控制图</button>
+            <button class="tab-btn" onclick="switchTab('weekly', this)">📅 周度明细</button>
+            <button class="tab-btn" onclick="switchTab('compliance', this)">✅ 达标追踪</button>
+        </div>
+    </div>
+
+    <!-- Overview Tab -->
+    <div id="tab-overview" class="tab-content max-w-7xl mx-auto px-6 py-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="glass-card p-5">
+                <div class="text-slate-400 text-xs font-medium mb-1">团队总工时</div>
+                <div class="stat-value" id="statTotalHours">0</div>
+                <div class="text-slate-500 text-xs mt-1">小时</div>
+            </div>
+            <div class="glass-card p-5">
+                <div class="text-slate-400 text-xs font-medium mb-1">平均周工时</div>
+                <div class="stat-value" id="statAvgWeekly">0</div>
+                <div class="text-slate-500 text-xs mt-1">小时/人/周</div>
+            </div>
+            <div class="glass-card p-5">
+                <div class="text-slate-400 text-xs font-medium mb-1">团队达标率</div>
+                <div class="stat-value" id="statCompliance">0%</div>
+                <div class="text-slate-500 text-xs mt-1">45-60h 区间</div>
+            </div>
+            <div class="glass-card p-5">
+                <div class="text-slate-400 text-xs font-medium mb-1">数据覆盖</div>
+                <div class="stat-value" id="statWeeks">0</div>
+                <div class="text-slate-500 text-xs mt-1">工作周</div>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5" id="employeeCards"></div>
+        <div class="glass-card p-6 mt-6">
+            <h3 class="text-lg font-bold mb-4">🎯 项目贡献比例</h3>
+            <div class="flex flex-col lg:flex-row items-center gap-8">
+                <div style="width:300px;height:300px;"><canvas id="pieChart"></canvas></div>
+                <div class="flex-1" id="contributionLegend"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SPC Tab -->
+    <div id="tab-spc" class="tab-content max-w-7xl mx-auto px-6 py-6" style="display:none;">
+        <div class="flex items-center justify-between mb-6 flex-wrap gap-4">
+            <h2 class="text-xl font-bold">📈 SPC 控制图</h2>
+            <div class="flex items-center gap-3">
+                <select id="spcEmployee" class="week-selector" onchange="updateSPC()"><option value="all">全部员工</option></select>
+            </div>
+        </div>
+        <div class="glass-card p-6">
+            <div class="flex items-center gap-6 mb-4 text-sm flex-wrap">
+                <span class="flex items-center gap-2"><span class="w-8 h-0.5 bg-green-500 inline-block"></span> UCL (60h)</span>
+                <span class="flex items-center gap-2"><span class="w-8 h-0.5 inline-block" style="border-top:2px dashed #3b82f6;height:0;"></span> CL (52.5h)</span>
+                <span class="flex items-center gap-2"><span class="w-8 h-0.5 bg-red-500 inline-block"></span> LCL (45h)</span>
+                <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-yellow-400 inline-block"></span> 超限警告</span>
+            </div>
+            <div style="height:420px;"><canvas id="spcChart"></canvas></div>
+        </div>
+        <div id="individualSPC" class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-5"></div>
+    </div>
+
+    <!-- Weekly Tab -->
+    <div id="tab-weekly" class="tab-content max-w-7xl mx-auto px-6 py-6" style="display:none;">
+        <h2 class="text-xl font-bold mb-6">📅 周度工时明细</h2>
+        <div class="glass-card overflow-hidden">
+            <div class="overflow-x-auto" style="max-height:650px;overflow-y:auto;">
+                <table class="data-table" id="weeklyTable">
+                    <thead><tr id="weeklyTableHead"></tr></thead>
+                    <tbody id="weeklyTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compliance Tab -->
+    <div id="tab-compliance" class="tab-content max-w-7xl mx-auto px-6 py-6" style="display:none;">
+        <h2 class="text-xl font-bold mb-6">✅ 达标追踪看板</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5" id="complianceCards"></div>
+        <div class="glass-card p-6 mt-6">
+            <h3 class="text-lg font-bold mb-4">📋 达标明细</h3>
+            <div class="overflow-x-auto" style="max-height:500px;overflow-y:auto;">
+                <table class="data-table" id="complianceTable">
+                    <thead><tr id="complianceTableHead"></tr></thead>
+                    <tbody id="complianceTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal-overlay" onclick="if(event.target===this)closeUploadModal()">
+        <div class="modal-content">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold">📤 上传工时数据</h2>
+                <button onclick="closeUploadModal()" class="text-slate-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="event.preventDefault();this.classList.remove('dragover');handleFileDrop(event)">
+                <svg class="w-14 h-14 mx-auto text-blue-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                <p class="text-base font-medium text-slate-300 mb-2">拖拽Excel文件到此处，或点击上传</p>
+                <p class="text-sm text-slate-500">支持 .xlsx / .xls 格式</p>
+                <input type="file" id="fileInput" accept=".xlsx,.xls" hidden onchange="handleFileUpload(event)">
+            </div>
+            <div id="fileInfoArea" style="display:none" class="file-info">
+                <h4 class="font-semibold text-sm mb-2">📊 文件解析结果</h4>
+                <div id="fileInfoContent" class="text-sm text-slate-300"></div>
+            </div>
+            <div class="mt-5 p-4 bg-slate-800/50 rounded-xl">
+                <h4 class="font-semibold text-sm mb-3">📋 支持的Excel格式</h4>
+                <div class="text-xs text-slate-400 space-y-1.5">
+                    <p><strong>格式一（流水日志）：</strong>每行一条工时记录</p>
+                    <p class="pl-4"><code class="bg-slate-700 px-1 rounded">工时所属日期 | Month | WK | 提交人 | 实际所用时间</code></p>
+                    <p>系统自动按「提交人 + WK」聚合计算每周总工时</p>
+                    <p class="mt-2"><strong>格式二（汇总表）：</strong>每行一周</p>
+                    <p class="pl-4"><code class="bg-slate-700 px-1 rounded">周次 | 员工A | 员工B | ...</code></p>
+                </div>
+            </div>
+            <div class="mt-4 flex gap-3">
+                <button onclick="loadDemoData()" class="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all">
+                    🎲 加载演示数据
+                </button>
+                <button onclick="loadTestFile()" class="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all">
+                    📂 加载测试文件
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mapping Modal -->
+    <div id="mappingModal" class="modal-overlay" onclick="if(event.target===this)closeMappingModal()">
+        <div class="modal-content" style="max-width:700px">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold">👤 员工角色映射</h2>
+                <button onclick="closeMappingModal()" class="text-slate-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <p class="text-sm text-slate-400 mb-4">将Excel中的提交人名称映射到项目角色，映射后图表将以角色名展示。</p>
+            <div class="mb-4">
+                <div class="grid grid-cols-4 gap-3 text-xs text-slate-500 font-semibold mb-2 px-1">
+                    <span>Excel名称</span><span>显示名称</span><span>项目角色</span><span>操作</span>
+                </div>
+                <div id="mappingRows"></div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button onclick="closeMappingModal()" class="px-5 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium">取消</button>
+                <button onclick="saveMapping()" class="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white text-sm font-medium">保存映射</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ==================== ROLES CONFIG ====================
+    const ROLES = ['工程师', '工程师', '工程师', '设备&工艺主管', '研发主管', '商务对接人', 'PM', '项目总负责人'];
+    const ROLE_COLORS = ['#3b82f6','#6366f1','#8b5cf6','#10b981','#f59e0b','#ec4899','#06b6d4','#ef4444'];
+    const ROLE_BG = ['rgba(59,130,246,0.15)','rgba(99,102,241,0.15)','rgba(139,92,246,0.15)','rgba(16,185,129,0.15)','rgba(245,158,11,0.15)','rgba(236,72,153,0.15)','rgba(6,182,212,0.15)','rgba(239,68,68,0.15)'];
+    const ROLE_EMOJIS = ['🔧','🔩','⚙️','🏭','🔬','🤝','📋','👑'];
+
+    // ==================== STATE ====================
+    // employees: [{id, rawName, displayName, role, color, bgColor, emoji}]
+    let employees = [];
+    // workData: { empId: { weekKey: hours } }  — weekKey like "2026 WK16"
+    let workData = {};
+    // Sorted week keys
+    let sortedWeeks = [];
+    // Employee name mapping: rawName -> {displayName, role}
+    let nameMapping = {};
+
+    let spcChartInstance = null;
+    let pieChartInstance = null;
+    let individualCharts = {};
+
+    // ==================== AVATAR GENERATOR ====================
+    function generateAvatar(emp, index) {
+        const skinColors = ['#FDBCB4','#F5D0A9','#FDEBD0','#D2B48C','#FDBCB4','#F5D0A9','#FDEBD0','#D2B48C'];
+        const hairColors = ['#2C1810','#4A3728','#8B6914','#1a1a2e','#654321','#3D2B1F','#4A3728','#1a1a2e'];
+        const skin = skinColors[index % skinColors.length];
+        const hair = hairColors[index % hairColors.length];
+        const eyeStyle = index % 3;
+        const mouthStyle = index % 4;
+        const bg = emp.color;
+
+        let accessories = '';
+        const r = emp.role;
+        if (r === '项目总负责人') accessories = `<polygon points="30,16 32,22 38,22 33,26 35,32 30,28 25,32 27,26 22,22 28,22" fill="#FFD700" stroke="#DAA520" stroke-width="0.5"/>`;
+        else if (r === 'PM') accessories = `<rect x="18" y="10" width="16" height="10" rx="2" fill="#333" stroke="#555" stroke-width="0.5"/><rect x="19" y="12" width="6" height="1.5" fill="#0f0" opacity="0.7"/>`;
+        else if (r.includes('工程师')) accessories = `<circle cx="30" cy="9" r="6" fill="none" stroke="#666" stroke-width="1.5"/><line x1="30" y1="3" x2="30" y2="0" stroke="#666" stroke-width="1.5"/>`;
+        else if (r === '设备&工艺主管') accessories = `<rect x="20" y="7" width="20" height="8" rx="2" fill="#f97316" opacity="0.8"/><rect x="24" y="9" width="12" height="4" rx="1" fill="#fff" opacity="0.6"/>`;
+        else if (r === '研发主管') accessories = `<circle cx="30" cy="10" r="7" fill="none" stroke="#9333ea" stroke-width="1.5"/><circle cx="30" cy="10" r="3" fill="none" stroke="#9333ea" stroke-width="1"/>`;
+        else if (r === '商务对接人') accessories = `<rect x="16" y="8" width="28" height="6" rx="3" fill="#333"/><rect x="26" y="5" width="8" height="5" rx="2" fill="#444"/>`;
+
+        const eyePaths = [
+            `<ellipse cx="25" cy="32" rx="2.5" ry="3" fill="#1a1a2e"/><ellipse cx="35" cy="32" rx="2.5" ry="3" fill="#1a1a2e"/><circle cx="24" cy="31" r="1" fill="white"/><circle cx="34" cy="31" r="1" fill="white"/>`,
+            `<path d="M22,31 Q25,28 28,31" stroke="#1a1a2e" stroke-width="2" fill="none"/><path d="M32,31 Q35,28 38,31" stroke="#1a1a2e" stroke-width="2" fill="none"/>`,
+            `<rect x="23" y="30" width="4" height="4" rx="1" fill="#1a1a2e"/><rect x="33" y="30" width="4" height="4" rx="1" fill="#1a1a2e"/>`,
+        ];
+        const mouthPaths = [
+            `<path d="M26,38 Q30,42 34,38" stroke="#c0392b" stroke-width="1.5" fill="none"/>`,
+            `<ellipse cx="30" cy="39" rx="3" ry="2" fill="#c0392b"/>`,
+            `<path d="M27,38 L33,38" stroke="#c0392b" stroke-width="1.5"/>`,
+            `<path d="M26,37 Q30,44 34,37" fill="#c0392b"/>`,
+        ];
+        return `<svg viewBox="0 0 60 60" class="avatar-svg" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="30" cy="30" r="30" fill="${bg}"/>
+            <ellipse cx="30" cy="52" rx="18" ry="12" fill="${emp.color}"/>
+            <circle cx="30" cy="28" r="14" fill="${skin}"/>
+            <ellipse cx="30" cy="20" rx="15" ry="8" fill="${hair}"/>
+            ${eyePaths[eyeStyle]}
+            ${mouthPaths[mouthStyle]}
+            ${accessories}
+        </svg>`;
+    }
+
+    // ==================== DATA PROCESSING ====================
+    function processExcelData(jsonRows) {
+        // Detect format by headers
+        const headers = jsonRows[0] || [];
+        const headerStr = headers.map(h => String(h||'').toLowerCase()).join('|');
+
+        if (headerStr.includes('wk') && headerStr.includes('提交人')) {
+            // Format 1: Transaction log with WK + person + hours
+            return processTransactionLog(jsonRows);
+        } else {
+            // Format 2: Summary table
+            return processSummaryTable(jsonRows);
+        }
+    }
+
+    function processTransactionLog(rows) {
+        // Aggregate: person + weekKey -> total hours
+        const aggregated = {};  // {rawName: {weekKey: totalHours}}
+        const weekSet = new Set();
+        const personSet = new Set();
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length < 5) continue;
+            const weekKey = String(row[2] || '').trim();   // "2026 WK16"
+            const person = String(row[3] || '').trim();
+            const hours = parseFloat(row[4]);
+            if (!person || person === 'None' || isNaN(hours) || hours <= 0) continue;
+
+            if (!aggregated[person]) aggregated[person] = {};
+            if (!aggregated[person][weekKey]) aggregated[person][weekKey] = 0;
+            aggregated[person][weekKey] += hours;
+            weekSet.add(weekKey);
+            personSet.add(person);
+        }
+
+        // Round hours
+        for (const p of Object.keys(aggregated)) {
+            for (const w of Object.keys(aggregated[p])) {
+                aggregated[p][w] = Math.round(aggregated[p][w] * 100) / 100;
+            }
+        }
+
+        return { aggregated, weeks: Array.from(weekSet).sort(), persons: Array.from(personSet).sort() };
+    }
+
+    function processSummaryTable(rows) {
+        const aggregated = {};
+        const weekSet = new Set();
+        const personSet = new Set();
+        const headers = rows[0] || [];
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length < 2) continue;
+            const weekKey = String(row[0] || '').trim();
+            const match = weekKey.match(/(\d+)/);
+            const wkNum = match ? parseInt(match[1]) : i;
+            const wkLabel = `W${wkNum}`;
+            weekSet.add(wkLabel);
+
+            for (let j = 1; j < headers.length && j < row.length; j++) {
+                const person = String(headers[j] || '').trim();
+                const hours = parseFloat(row[j]);
+                if (!person || isNaN(hours)) continue;
+                personSet.add(person);
+                if (!aggregated[person]) aggregated[person] = {};
+                aggregated[person][wkLabel] = hours;
+            }
+        }
+        return { aggregated, weeks: Array.from(weekSet).sort(), persons: Array.from(personSet).sort() };
+    }
+
+    function applyData(result) {
+        const { aggregated, weeks, persons } = result;
+        sortedWeeks = weeks;
+
+        // Build or update employees
+        // Keep existing mapping if available
+        persons.forEach((rawName, idx) => {
+            const existing = employees.find(e => e.rawName === rawName);
+            if (existing) return;
+
+            const mapping = nameMapping[rawName] || {};
+            const roleIdx = Math.min(idx, ROLES.length - 1);
+            employees.push({
+                id: 'emp_' + rawName.replace(/[^a-zA-Z0-9]/g, '_'),
+                rawName: rawName,
+                displayName: mapping.displayName || rawName,
+                role: mapping.role || ROLES[roleIdx] || '成员',
+                color: ROLE_COLORS[idx % ROLE_COLORS.length],
+                bgColor: ROLE_BG[idx % ROLE_BG.length],
+                emoji: ROLE_EMOJIS[idx % ROLE_EMOJIS.length],
+            });
+        });
+
+        // Apply aggregated data
+        employees.forEach(emp => {
+            workData[emp.id] = aggregated[emp.rawName] || {};
+        });
+    }
+
+    // ==================== UI RENDERING ====================
+    function renderAll() {
+        renderEmployeeCards();
+        renderPieChart();
+        renderSPC();
+        renderWeeklyTable();
+        renderCompliance();
+        updateStats();
+        populateSelectors();
+    }
+
+    function getWeekHours(empId) {
+        const data = workData[empId] || {};
+        return sortedWeeks.map(w => data[w] || 0);
+    }
+
+    function calcCompliance(empId) {
+        const hours = getWeekHours(empId).filter(v => v > 0);
+        if (hours.length === 0) return 0;
+        return (hours.filter(v => v >= 45 && v <= 60).length / hours.length) * 100;
+    }
+
+    function updateStats() {
+        const allHours = employees.flatMap(emp => Object.values(workData[emp.id] || {}));
+        const totalHours = allHours.reduce((s, v) => s + v, 0);
+        const activeData = allHours.filter(v => v > 0);
+        const avgWeekly = activeData.length > 0 ? activeData.reduce((s, v) => s + v, 0) / activeData.length : 0;
+        const inRange = activeData.filter(v => v >= 45 && v <= 60).length;
+        const complianceRate = activeData.length > 0 ? (inRange / activeData.length * 100) : 0;
+
+        document.getElementById('statTotalHours').textContent = totalHours.toFixed(0);
+        document.getElementById('statAvgWeekly').textContent = avgWeekly.toFixed(1);
+        document.getElementById('statCompliance').textContent = complianceRate.toFixed(0) + '%';
+        document.getElementById('statWeeks').textContent = sortedWeeks.length;
+    }
+
+    function renderEmployeeCards() {
+        const container = document.getElementById('employeeCards');
+        container.innerHTML = employees.map((emp, i) => {
+            const hours = getWeekHours(emp.id);
+            const total = hours.reduce((s, v) => s + v, 0);
+            const avgWeek = hours.filter(v => v > 0).length > 0 ? total / hours.filter(v => v > 0).length : 0;
+            const activeWeeks = hours.filter(v => v > 0).length;
+            const compliance = calcCompliance(emp.id);
+            const pct = Math.min(compliance, 100);
+            const statusClass = compliance >= 80 ? 'compliance-good' : compliance >= 60 ? 'compliance-warning' : 'compliance-bad';
+            const statusText = compliance >= 80 ? '优秀' : compliance >= 60 ? '一般' : '待改善';
+
+            return `<div class="glass-card p-5 animate-in relative group" style="animation-delay:${i*0.06}s">
+                <button onclick="deleteEmployee('${emp.id}')" class="absolute top-3 right-3 w-7 h-7 rounded-full bg-slate-700/80 hover:bg-red-500 text-slate-400 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10" title="删除该员工">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="avatar-container" style="border:3px solid ${emp.color}">
+                        ${generateAvatar(emp, i)}
+                    </div>
+                    <div class="min-w-0">
+                        <div class="font-bold text-base truncate">${emp.displayName}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">${emp.rawName}</div>
+                        <div class="text-xs px-2 py-0.5 rounded-full mt-1 inline-block" style="background:${emp.bgColor};color:${emp.color}">${emp.role}</div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-slate-800/50 rounded-lg p-2">
+                        <div class="text-xs text-slate-500">总工时</div>
+                        <div class="font-bold text-sm" style="color:${emp.color}">${total.toFixed(1)}h</div>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-lg p-2">
+                        <div class="text-xs text-slate-500">周均</div>
+                        <div class="font-bold text-sm" style="color:${emp.color}">${avgWeek.toFixed(1)}h</div>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-lg p-2">
+                        <div class="text-xs text-slate-500">活跃周</div>
+                        <div class="font-bold text-sm" style="color:${emp.color}">${activeWeeks}</div>
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center justify-between">
+                    <span class="text-xs text-slate-500">达标率 (45-60h)</span>
+                    <span class="compliance-badge ${statusClass}">${statusText} ${compliance.toFixed(0)}%</span>
+                </div>
+                <div class="mini-bar mt-1">
+                    <div class="mini-bar-fill" style="width:${pct}%;background:${emp.color}"></div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function renderPieChart() {
+        const ctx = document.getElementById('pieChart').getContext('2d');
+        const totals = employees.map(emp => Object.values(workData[emp.id] || {}).reduce((s, v) => s + v, 0));
+        const grandTotal = totals.reduce((s, v) => s + v, 0);
+
+        if (pieChartInstance) pieChartInstance.destroy();
+        pieChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: employees.map(e => e.displayName),
+                datasets: [{
+                    data: totals, backgroundColor: employees.map(e => e.color),
+                    borderWidth: 2, borderColor: '#0f172a', hoverOffset: 10
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: true, cutout: '55%',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const pct = grandTotal > 0 ? ((ctx.parsed / grandTotal) * 100).toFixed(1) : 0;
+                                return `${ctx.label}: ${ctx.parsed.toFixed(1)}h (${pct}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        document.getElementById('contributionLegend').innerHTML = employees.map((emp, i) => {
+            const pct = grandTotal > 0 ? ((totals[i] / grandTotal) * 100).toFixed(1) : 0;
+            return `<div class="flex items-center gap-3 mb-3">
+                <div class="w-4 h-4 rounded-full flex-shrink-0" style="background:${emp.color}"></div>
+                <div class="flex-1">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-medium">${emp.displayName} <span class="text-xs text-slate-500">${emp.role}</span></span>
+                        <span class="text-sm text-slate-400">${totals[i].toFixed(1)}h · ${pct}%</span>
+                    </div>
+                    <div class="mini-bar mt-1"><div class="mini-bar-fill" style="width:${pct}%;background:${emp.color}"></div></div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // ==================== SPC CHART ====================
+    function renderSPC() { updateSPC(); renderIndividualSPC(); }
+
+    function updateSPC() {
+        const selected = document.getElementById('spcEmployee').value;
+        const ctx = document.getElementById('spcChart').getContext('2d');
+        if (spcChartInstance) spcChartInstance.destroy();
+
+        const labels = sortedWeeks;
+        const datasets = [];
+
+        if (selected === 'all') {
+            employees.forEach(emp => {
+                datasets.push({
+                    label: emp.displayName, data: getWeekHours(emp.id),
+                    borderColor: emp.color, backgroundColor: emp.color + '20',
+                    borderWidth: 2,
+                    pointRadius: getWeekHours(emp.id).some(v => v > 0) ? 3 : 0,
+                    pointBackgroundColor: getWeekHours(emp.id).map(v => (v > 0 && (v < 45 || v > 60)) ? '#f59e0b' : emp.color),
+                    pointBorderColor: 'transparent', tension: 0.3, fill: false, pointHoverRadius: 6,
+                });
+            });
+        } else {
+            const emp = employees.find(e => e.id === selected);
+            if (emp) {
+                datasets.push({
+                    label: emp.displayName, data: getWeekHours(emp.id),
+                    borderColor: emp.color, backgroundColor: emp.color + '20',
+                    borderWidth: 2.5,
+                    pointRadius: getWeekHours(emp.id).map(v => v > 0 ? 4 : 0),
+                    pointBackgroundColor: getWeekHours(emp.id).map(v => (v > 0 && (v < 45 || v > 60)) ? '#f59e0b' : emp.color),
+                    pointBorderColor: 'transparent', tension: 0.3, fill: true, pointHoverRadius: 7,
+                });
+            }
+        }
+
+        const n = sortedWeeks.length;
+        datasets.push({ label: 'UCL (60h)', data: Array(n).fill(60), borderColor: '#10b981', borderWidth: 2, borderDash: [], pointRadius: 0, fill: false });
+        datasets.push({ label: 'CL (52.5h)', data: Array(n).fill(52.5), borderColor: '#3b82f6', borderWidth: 1.5, borderDash: [5,5], pointRadius: 0, fill: false });
+        datasets.push({ label: 'LCL (45h)', data: Array(n).fill(45), borderColor: '#ef4444', borderWidth: 2, borderDash: [], pointRadius: 0, fill: false });
+
+        spcChartInstance = new Chart(ctx, {
+            type: 'line', data: { labels, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'top', labels: { color: '#94a3b8', usePointStyle: true, padding: 12, font: { size: 11 } } },
+                    tooltip: {
+                        backgroundColor: '#1e293b', titleColor: '#f1f5f9', bodyColor: '#94a3b8',
+                        borderColor: '#334155', borderWidth: 1,
+                        callbacks: {
+                            label: (ctx) => {
+                                if (ctx.dataset.label.includes('UCL') || ctx.dataset.label.includes('LCL') || ctx.dataset.label.includes('CL')) return ctx.dataset.label;
+                                const v = ctx.parsed.y;
+                                let status = v > 0 ? (v < 45 ? ' ⚠️ 低于下限' : v > 60 ? ' ⚠️ 超过上限' : ' ✅ 达标') : '';
+                                return `${ctx.dataset.label}: ${v}h${status}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { color: '#64748b', font: { size: 10 }, maxRotation: 45 } },
+                    y: { grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { color: '#64748b' }, min: 0, suggestedMax: 80 }
+                }
+            }
+        });
+    }
+
+    function renderIndividualSPC() {
+        const container = document.getElementById('individualSPC');
+        container.innerHTML = '';
+        Object.values(individualCharts).forEach(c => c.destroy());
+        individualCharts = {};
+
+        employees.forEach((emp, i) => {
+            const div = document.createElement('div');
+            div.className = 'spc-chart-container animate-in';
+            div.style.animationDelay = `${i * 0.08}s`;
+            const comp = calcCompliance(emp.id);
+            div.innerHTML = `<div class="flex items-center gap-3 mb-3">
+                <div class="w-3 h-3 rounded-full" style="background:${emp.color}"></div>
+                <span class="font-semibold text-sm">${emp.displayName}</span>
+                <span class="text-xs text-slate-500">${emp.role}</span>
+                <span class="compliance-badge ${comp >= 80 ? 'compliance-good' : comp >= 60 ? 'compliance-warning' : 'compliance-bad'}">${comp.toFixed(0)}% 达标</span>
+            </div><canvas id="spc-${emp.id}" height="180"></canvas>`;
+            container.appendChild(div);
+
+            setTimeout(() => {
+                const cvs = document.getElementById(`spc-${emp.id}`);
+                if (!cvs) return;
+                const ctx = cvs.getContext('2d');
+                const data = getWeekHours(emp.id);
+                const n = sortedWeeks.length;
+
+                individualCharts[emp.id] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: sortedWeeks,
+                        datasets: [
+                            { label: emp.displayName, data, borderColor: emp.color, backgroundColor: emp.color + '20', borderWidth: 1.5, pointRadius: data.map(v => v > 0 ? 2.5 : 0), pointBackgroundColor: data.map(v => (v > 0 && (v < 45 || v > 60)) ? '#f59e0b' : emp.color), tension: 0.3, fill: true },
+                            { label: 'UCL', data: Array(n).fill(60), borderColor: '#10b981', borderWidth: 1, pointRadius: 0, fill: false },
+                            { label: 'LCL', data: Array(n).fill(45), borderColor: '#ef4444', borderWidth: 1, pointRadius: 0, fill: false },
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { display: true, grid: { display: false }, ticks: { font: { size: 8 }, color: '#64748b', maxTicksLimit: 12 } },
+                            y: { grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { font: { size: 9 }, color: '#64748b' }, min: 0, suggestedMax: 80 }
+                        }
+                    }
+                });
+            }, 150);
+        });
+    }
+
+    // ==================== WEEKLY TABLE ====================
+    function renderWeeklyTable() {
+        const head = document.getElementById('weeklyTableHead');
+        const body = document.getElementById('weeklyTableBody');
+        head.innerHTML = `<th>周次</th>${employees.map(e => `<th style="color:${e.color}">${e.displayName}</th>`).join('')}<th>团队合计</th><th>人均</th>`;
+
+        body.innerHTML = sortedWeeks.map(wk => {
+            const hours = employees.map(emp => workData[emp.id]?.[wk] || 0);
+            const activeHours = hours.filter(v => v > 0);
+            const sum = hours.reduce((s, v) => s + v, 0);
+            const avg = activeHours.length > 0 ? sum / activeHours.length : 0;
+            const hasData = hours.some(v => v > 0);
+
+            return `<tr style="${!hasData ? 'opacity:0.3' : ''}">
+                <td class="font-medium">${wk}</td>
+                ${hours.map(h => {
+                    let style = '';
+                    if (h > 0 && h < 45) style = 'color:#f59e0b;font-weight:600';
+                    else if (h > 60) style = 'color:#ef4444;font-weight:600';
+                    else if (h >= 45 && h <= 60) style = 'color:#10b981';
+                    return `<td style="${style}">${h > 0 ? h : '-'}</td>`;
+                }).join('')}
+                <td class="font-semibold">${sum > 0 ? sum.toFixed(1) : '-'}</td>
+                <td>${avg > 0 ? avg.toFixed(1) : '-'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // ==================== COMPLIANCE ====================
+    function renderCompliance() {
+        const container = document.getElementById('complianceCards');
+        container.innerHTML = employees.map((emp, i) => {
+            const data = Object.values(workData[emp.id] || {}).filter(v => v > 0);
+            const totalWeeks = data.length;
+            const inRange = data.filter(v => v >= 45 && v <= 60).length;
+            const belowLCL = data.filter(v => v < 45).length;
+            const aboveUCL = data.filter(v => v > 60).length;
+            const compliance = totalWeeks > 0 ? (inRange / totalWeeks * 100) : 0;
+            const statusClass = compliance >= 80 ? 'compliance-good' : compliance >= 60 ? 'compliance-warning' : 'compliance-bad';
+            const statusText = compliance >= 80 ? '🟢 优秀' : compliance >= 60 ? '🟡 一般' : '🔴 待改善';
+
+            return `<div class="glass-card p-5 animate-in" style="animation-delay:${i*0.06}s">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="avatar-container" style="width:48px;height:48px;border:2px solid ${emp.color}">
+                        ${generateAvatar(emp, i)}
+                    </div>
+                    <div>
+                        <div class="font-bold text-sm">${emp.displayName}</div>
+                        <span class="compliance-badge ${statusClass}">${statusText} ${compliance.toFixed(0)}%</span>
+                    </div>
+                </div>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between"><span class="text-slate-400">活跃周数</span><span class="font-semibold">${totalWeeks} / ${sortedWeeks.length}</span></div>
+                    <div class="flex justify-between"><span class="text-emerald-400">✅ 达标</span><span class="font-semibold text-emerald-400">${inRange}</span></div>
+                    <div class="flex justify-between"><span class="text-amber-400">⚠️ <45h</span><span class="font-semibold text-amber-400">${belowLCL}</span></div>
+                    <div class="flex justify-between"><span class="text-red-400">🔴 >60h</span><span class="font-semibold text-red-400">${aboveUCL}</span></div>
+                </div>
+                <div class="mt-3 h-3 bg-slate-700 rounded-full overflow-hidden flex">
+                    <div class="h-full bg-emerald-500" style="width:${totalWeeks>0?inRange/totalWeeks*100:0}%"></div>
+                    <div class="h-full bg-amber-500" style="width:${totalWeeks>0?belowLCL/totalWeeks*100:0}%"></div>
+                    <div class="h-full bg-red-500" style="width:${totalWeeks>0?aboveUCL/totalWeeks*100:0}%"></div>
+                </div>
+            </div>`;
+        }).join('');
+
+        // Detail table
+        const thead = document.getElementById('complianceTableHead');
+        const tbody = document.getElementById('complianceTableBody');
+        thead.innerHTML = `<th>周次</th>${employees.map(e => `<th style="color:${e.color}">${e.displayName}</th>`).join('')}`;
+        tbody.innerHTML = sortedWeeks.map(wk => {
+            const hasData = employees.some(emp => (workData[emp.id]?.[wk] || 0) > 0);
+            if (!hasData) return '';
+            return `<tr><td class="font-medium">${wk}</td>${employees.map(emp => {
+                const v = workData[emp.id]?.[wk] || 0;
+                if (v === 0) return '<td>-</td>';
+                let icon = '✅', color = '#10b981';
+                if (v < 45) { icon = '⚠️'; color = '#f59e0b'; }
+                else if (v > 60) { icon = '🔴'; color = '#ef4444'; }
+                return `<td style="color:${color}">${icon} ${v}h</td>`;
+            }).join('')}</tr>`;
+        }).filter(Boolean).join('');
+    }
+
+    // ==================== CLEAR & DELETE ====================
+    function clearAllData() {
+        if (employees.length === 0 && sortedWeeks.length === 0) {
+            showToast('当前没有数据需要清空', 'error');
+            return;
+        }
+        // Custom confirm via modal approach - use a simple flag
+        const confirmed = createConfirm('确定要清空所有数据吗？此操作不可撤销。', () => {
+            employees = [];
+            workData = {};
+            sortedWeeks = [];
+            nameMapping = {};
+            Object.values(individualCharts).forEach(c => c.destroy());
+            individualCharts = {};
+            renderAll();
+            showToast('所有数据已清空', 'success');
+        });
+    }
+
+    function deleteEmployee(empId) {
+        const emp = employees.find(e => e.id === empId);
+        if (!emp) return;
+        createConfirm(`确定要删除员工「${emp.displayName}」吗？该员工的所有工时数据将被移除。`, () => {
+            // Destroy individual chart if exists
+            if (individualCharts[empId]) {
+                individualCharts[empId].destroy();
+                delete individualCharts[empId];
+            }
+            // Remove from employees array
+            employees = employees.filter(e => e.id !== empId);
+            // Remove work data
+            delete workData[empId];
+            // Remove name mapping
+            delete nameMapping[emp.rawName];
+            renderAll();
+            showToast(`已删除员工「${emp.displayName}」`, 'success');
+        });
+    }
+
+    function createConfirm(message, onConfirm) {
+        // Remove existing confirm if any
+        const existing = document.getElementById('confirmModal');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'confirmModal';
+        overlay.className = 'modal-overlay show';
+        overlay.style.cssText = 'display:flex;z-index:200';
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width:420px;text-align:center;padding:32px">
+                <div style="width:56px;height:56px;margin:0 auto 16px;border-radius:50%;background:rgba(239,68,68,0.15);display:flex;align-items:center;justify-content:center">
+                    <svg class="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                </div>
+                <h3 class="text-lg font-bold mb-2">确认操作</h3>
+                <p class="text-sm text-slate-400 mb-6">${message}</p>
+                <div class="flex gap-3 justify-center">
+                    <button id="confirmCancel" class="px-5 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium transition-all">取消</button>
+                    <button id="confirmOk" class="px-5 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-all">确认删除</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        document.getElementById('confirmCancel').onclick = () => overlay.remove();
+        document.getElementById('confirmOk').onclick = () => { overlay.remove(); onConfirm(); };
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    }
+
+    // ==================== MAPPING MODAL ====================
+    function showMappingModal() {
+        const container = document.getElementById('mappingRows');
+        container.innerHTML = employees.map((emp, i) => {
+            return `<div class="mapping-row" style="grid-template-columns:120px 1fr 1fr 60px">
+                <div class="text-sm font-medium text-slate-300 px-2 py-1 bg-slate-800 rounded-lg text-center">${emp.rawName}</div>
+                <input type="text" id="map-name-${emp.id}" value="${emp.displayName}" placeholder="显示名称" />
+                <select id="map-role-${emp.id}">
+                    ${ROLES.map(r => `<option value="${r}" ${emp.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+                </select>
+                <button onclick="deleteEmployeeFromMapping('${emp.id}')" class="w-9 h-9 rounded-lg bg-slate-700 hover:bg-red-500 text-slate-400 hover:text-white flex items-center justify-center transition-all" title="删除该员工">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+            </div>`;
+        }).join('');
+        document.getElementById('mappingModal').classList.add('show');
+    }
+
+    function deleteEmployeeFromMapping(empId) {
+        const emp = employees.find(e => e.id === empId);
+        if (!emp) return;
+        createConfirm(`确定要删除员工「${emp.displayName}」吗？`, () => {
+            if (individualCharts[empId]) { individualCharts[empId].destroy(); delete individualCharts[empId]; }
+            employees = employees.filter(e => e.id !== empId);
+            delete workData[empId];
+            delete nameMapping[emp.rawName];
+            // Refresh the mapping modal content
+            showMappingModal();
+            renderAll();
+            showToast(`已删除员工「${emp.displayName}」`, 'success');
+        });
+    }
+
+    function closeMappingModal() { document.getElementById('mappingModal').classList.remove('show'); }
+
+    function saveMapping() {
+        employees.forEach(emp => {
+            const nameInput = document.getElementById(`map-name-${emp.id}`);
+            const roleSelect = document.getElementById(`map-role-${emp.id}`);
+            if (nameInput) emp.displayName = nameInput.value || emp.rawName;
+            if (roleSelect) emp.role = roleSelect.value;
+            nameMapping[emp.rawName] = { displayName: emp.displayName, role: emp.role };
+        });
+        renderAll();
+        closeMappingModal();
+        showToast('员工映射已保存！', 'success');
+    }
+
+    // ==================== UPLOAD ====================
+    function showUploadModal() { document.getElementById('uploadModal').classList.add('show'); }
+    function closeUploadModal() { document.getElementById('uploadModal').classList.remove('show'); }
+
+    function handleFileDrop(event) {
+        const file = event.dataTransfer.files[0];
+        if (file) processFile(file);
+    }
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (file) processFile(file);
+    }
+
+    function processFile(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+                if (json.length < 2) { showToast('Excel数据不足', 'error'); return; }
+
+                const result = processExcelData(json);
+                applyData(result);
+
+                // Show file info
+                const infoArea = document.getElementById('fileInfoArea');
+                const infoContent = document.getElementById('fileInfoContent');
+                infoArea.style.display = 'block';
+                infoContent.innerHTML = `
+                    <p>✅ 解析成功！</p>
+                    <p>📋 识别 <strong>${result.persons.length}</strong> 位员工：${result.persons.join(', ')}</p>
+                    <p>📅 覆盖 <strong>${result.weeks.length}</strong> 个工作周：${result.weeks.join(', ')}</p>
+                `;
+
+                renderAll();
+                showToast('工时数据导入成功！', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('文件解析失败: ' + err.message, 'error');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    // ==================== DEMO DATA ====================
+    function loadDemoData() {
+        employees = [];
+        workData = {};
+        nameMapping = {};
+
+        const demoNames = ['AH','CC','HHF','LXF','NW','THF','WRY','YJX'];
+        const demoDisplay = ['工程师 A','工程师 B','工程师 C','设备&工艺主管','研发主管','商务对接人','PM','项目总负责人'];
+        const demoRoles = ['工程师','工程师','工程师','设备&工艺主管','研发主管','商务对接人','PM','项目总负责人'];
+
+        demoNames.forEach((name, i) => {
+            nameMapping[name] = { displayName: demoDisplay[i], role: demoRoles[i] };
+            employees.push({
+                id: 'emp_' + name,
+                rawName: name,
+                displayName: demoDisplay[i],
+                role: demoRoles[i],
+                color: ROLE_COLORS[i],
+                bgColor: ROLE_BG[i],
+                emoji: ROLE_EMOJIS[i],
+            });
+        });
+
+        sortedWeeks = Array.from({length: 52}, (_, i) => `W${i+1}`);
+
+        // Generate realistic data
+        function rand(min, max) { return min + Math.random() * (max - min); }
+        const profiles = [
+            () => Math.round(rand(46, 58) + (Math.random()<0.1 ? rand(5,15) : 0) + (Math.random()<0.08 ? -rand(8,18) : 0)),
+            () => Math.round(rand(46, 58) + (Math.random()<0.1 ? rand(5,15) : 0) + (Math.random()<0.08 ? -rand(8,18) : 0)),
+            () => Math.round(rand(46, 58) + (Math.random()<0.1 ? rand(5,15) : 0) + (Math.random()<0.08 ? -rand(8,18) : 0)),
+            () => Math.round(rand(44, 56) + (Math.random()<0.12 ? -rand(5,10) : 0)),
+            () => Math.round(rand(46, 60) + (Math.random()<0.15 ? rand(3,8) : 0)),
+            () => Math.round(rand(40, 56) + (Math.random()<0.1 ? rand(8,16) : 0)),
+            () => Math.round(rand(48, 62) + (Math.random()<0.12 ? rand(5,12) : 0)),
+            () => Math.round(rand(50, 65) + (Math.random()<0.18 ? rand(5,10) : 0)),
+        ];
+
+        employees.forEach((emp, i) => {
+            workData[emp.id] = {};
+            sortedWeeks.forEach(wk => {
+                workData[emp.id][wk] = profiles[i]();
+            });
+        });
+
+        renderAll();
+        closeUploadModal();
+        showToast('52周演示数据已加载！', 'success');
+    }
+
+    function loadTestFile() {
+        // Load the actual test file from uploads
+        fetch('/测试_1776417262539_0jg8h3.xlsx')
+            .then(r => r.arrayBuffer())
+            .then(buf => {
+                const workbook = XLSX.read(buf, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                if (json.length < 2) { showToast('数据不足', 'error'); return; }
+                const result = processExcelData(json);
+                applyData(result);
+                renderAll();
+                closeUploadModal();
+                showToast('测试文件加载成功！', 'success');
+            })
+            .catch(err => {
+                // Fallback: read directly from uploads path using the processFile approach
+                showToast('请通过上传按钮选择测试文件', 'error');
+            });
+    }
+
+    // ==================== EXPORT ====================
+    function exportData() {
+        const rows = [['周次', ...employees.map(e => `${e.displayName}(${e.rawName})`)]];
+        sortedWeeks.forEach(wk => {
+            rows.push([wk, ...employees.map(emp => workData[emp.id]?.[wk] || 0)]);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '工时数据');
+        XLSX.writeFile(wb, '工时追踪数据.xlsx');
+        showToast('导出成功！', 'success');
+    }
+
+    // ==================== UTILITIES ====================
+    function switchTab(tab, btn) {
+        document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(`tab-${tab}`).style.display = 'block';
+        if (btn) btn.classList.add('active');
+        if (tab === 'spc') setTimeout(() => { updateSPC(); renderIndividualSPC(); }, 100);
+    }
+
+    function populateSelectors() {
+        const spcSel = document.getElementById('spcEmployee');
+        spcSel.innerHTML = '<option value="all">全部员工</option>';
+        employees.forEach(emp => { spcSel.innerHTML += `<option value="${emp.id}">${emp.displayName}</option>`; });
+    }
+
+    function showToast(msg, type) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = `toast toast-${type} show`;
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // ==================== INIT WITH TEST DATA ====================
+    // Auto-load the test file on startup
+    (async function init() {
+        try {
+            const response = await fetch('/测试_1776417262539_0jg8h3.xlsx');
+            if (response.ok) {
+                const buf = await response.arrayBuffer();
+                const workbook = XLSX.read(buf, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                const result = processExcelData(json);
+                applyData(result);
+                renderAll();
+                showToast('已自动加载测试文件数据', 'success');
+            } else {
+                renderAll();
+            }
+        } catch (e) {
+            renderAll();
+        }
+    })();
+    </script>
+</body>
+</html>
